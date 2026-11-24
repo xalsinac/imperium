@@ -17,6 +17,8 @@ const DATA = EMPIRES.map((e) => {
   };
 });
 
+let activeDockRaf = null;
+
 const state = {
   view: 'radial', // 'radial' | 'horizontal' | 'timeline'
   scale: 'normalized', // 'normalized' | 'years'
@@ -410,11 +412,11 @@ function renderRadial(items, avgs) {
   }
 
   const n = items.length;
+  const spokes = [];
+
   items.forEach((empire, idx) => {
     // De izquierda (-PI) a derecha (0)
-    const angle = -Math.PI + (n === 1 ? 0.5 : idx / (n - 1)) * Math.PI;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
+    const baseAngle = -Math.PI + (n === 1 ? 0.5 : idx / (n - 1)) * Math.PI;
     const gov = GOVERNMENT_TYPES[empire.government];
     const matched = isMatch(empire);
 
@@ -427,27 +429,8 @@ function renderRadial(items, avgs) {
         ? 1
         : Math.min(1, empire.duration / maxYearsCap);
     const isCapped = state.scale === 'years' && empire.duration > maxYearsCap;
-
     const rEnd = rInner + ratioEnd * (rOuter - rInner);
-    const x0 = cx + rInner * cos;
-    const y0 = cy + rInner * sin;
-    const xEnd = cx + rEnd * cos;
-    const yEnd = cy + rEnd * sin;
 
-    // Línea base del ciclo vital
-    g.appendChild(
-      el('line', {
-        x1: x0,
-        y1: y0,
-        x2: xEnd,
-        y2: yEnd,
-        stroke: '#bfb39a',
-        'stroke-width': '1.5',
-        'stroke-dasharray': state.scale === 'normalized' ? '2 2.5' : 'none'
-      })
-    );
-
-    // Segmento de Edad de Oro
     const tStart =
       state.scale === 'normalized'
         ? empire.peakStartPct / 100
@@ -459,111 +442,88 @@ function renderRadial(items, avgs) {
 
     const rGold1 = rInner + tStart * (rOuter - rInner);
     const rGold2 = rInner + tEnd * (rOuter - rInner);
-    const gx1 = cx + rGold1 * cos;
-    const gy1 = cy + rGold1 * sin;
-    const gx2 = cx + rGold2 * cos;
-    const gy2 = cy + rGold2 * sin;
 
-    g.appendChild(
-      el('line', {
-        x1: gx1,
-        y1: gy1,
-        x2: gx2,
-        y2: gy2,
-        stroke: '#d97a16',
-        'stroke-width': '3.2',
-        'stroke-linecap': 'round'
-      })
-    );
-
-    // Puntos de inicio apogeo (○) y declive (●)
-    g.appendChild(
-      el('circle', {
-        cx: gx1,
-        cy: gy1,
-        r: '3.2',
-        fill: '#fbf8f1',
-        stroke: '#d97a16',
-        'stroke-width': '1.6'
-      })
-    );
-    g.appendChild(
-      el('circle', {
-        cx: gx2,
-        cy: gy2,
-        r: '3',
-        fill: '#1f1d1a'
-      })
-    );
-
-    // Anillo exterior fijo para burbuja de área, icono de colapso y etiqueta uniforme
     const rBubble = rOuter + 14;
     const rIcon = rOuter + 32;
     const rLabel = rOuter + 46;
+    const baseBubbleR = areaRadius(empire.peakAreaKm2);
 
-    // Círculo proporcional a extensión territorial
-    g.appendChild(
-      el('circle', {
-        cx: cx + rBubble * cos,
-        cy: cy + rBubble * sin,
-        r: areaRadius(empire.peakAreaKm2),
-        fill: gov.color,
-        opacity: '0.28',
-        stroke: gov.color,
-        'stroke-width': '1'
-      })
-    );
+    // Área invisible amplia para facilitar el hover sin parpadeos
+    const hitLine = el('line', {
+      stroke: 'transparent',
+      'stroke-width': '14'
+    });
+    g.appendChild(hitLine);
 
-    // Indicador de outlier acotado en modo años
+    const baseLine = el('line', {
+      stroke: '#bfb39a',
+      'stroke-width': '1.5',
+      'stroke-dasharray': state.scale === 'normalized' ? '2 2.5' : 'none'
+    });
+    g.appendChild(baseLine);
+
+    const goldLine = el('line', {
+      stroke: '#d97a16',
+      'stroke-width': '3.2',
+      'stroke-linecap': 'round'
+    });
+    g.appendChild(goldLine);
+
+    const dotStart = el('circle', {
+      r: '3.2',
+      fill: '#fbf8f1',
+      stroke: '#d97a16',
+      'stroke-width': '1.6'
+    });
+    g.appendChild(dotStart);
+
+    const dotEnd = el('circle', {
+      r: '3',
+      fill: '#1f1d1a'
+    });
+    g.appendChild(dotEnd);
+
+    const bubble = el('circle', {
+      r: baseBubbleR,
+      fill: gov.color,
+      opacity: '0.28',
+      stroke: gov.color,
+      'stroke-width': '1'
+    });
+    g.appendChild(bubble);
+
+    let capText = null;
     if (isCapped) {
-      g.appendChild(
-        el(
-          'text',
-          {
-            x: cx + (rOuter + 2) * cos,
-            y: cy + (rOuter + 2) * sin,
-            'text-anchor': 'middle',
-            'dominant-baseline': 'central',
-            fill: '#a82c2c',
-            'font-size': '10',
-            'font-weight': '700'
-          },
-          '+'
-        )
-      );
-    }
-
-    // Glifo de causa de colapso
-    g.appendChild(
-      el(
+      capText = el(
         'text',
         {
-          x: cx + rIcon * cos,
-          y: cy + rIcon * sin,
           'text-anchor': 'middle',
           'dominant-baseline': 'central',
-          fill: '#5c5448',
-          'font-size': '11'
+          fill: '#a82c2c',
+          'font-size': '10',
+          'font-weight': '700'
         },
-        getCollapseGlyph(empire.collapse)
-      )
-    );
+        '+'
+      );
+      g.appendChild(capText);
+    }
 
-    // Etiqueta con tamaño uniforme y legible (11.5px)
-    const deg = (angle * 180) / Math.PI;
-    const flip = deg < -90;
-    const rotDeg = flip ? deg + 180 : deg;
-    const lx = cx + rLabel * cos;
-    const ly = cy + rLabel * sin;
+    const iconText = el(
+      'text',
+      {
+        'text-anchor': 'middle',
+        'dominant-baseline': 'central',
+        fill: '#5c5448',
+        'font-size': '11'
+      },
+      getCollapseGlyph(empire.collapse)
+    );
+    g.appendChild(iconText);
 
     const label = el(
       'text',
       {
         class: 'empire-label',
-        x: lx,
-        y: ly,
-        transform: `rotate(${rotDeg}, ${lx}, ${ly})`,
-        'text-anchor': flip ? 'end' : 'start',
         'dominant-baseline': 'central',
         fill: gov.color,
         'font-size': '11.5',
@@ -573,9 +533,193 @@ function renderRadial(items, avgs) {
     );
     g.appendChild(label);
 
+    const spoke = {
+      idx,
+      empire,
+      matched,
+      gov,
+      baseAngle,
+      rInner,
+      rEnd,
+      rGold1,
+      rGold2,
+      rBubble,
+      rIcon,
+      rLabel,
+      baseBubbleR,
+      g,
+      hitLine,
+      baseLine,
+      goldLine,
+      dotStart,
+      dotEnd,
+      bubble,
+      capText,
+      iconText,
+      label
+    };
+    spokes.push(spoke);
+
     attachEmpireEvents(g, empire);
     svg.appendChild(g);
   });
+
+  // Efecto Aladino / Dock de macOS en el abanico radial
+  let targetIdx = null;
+  let currentIdx = null;
+  let dockStrength = 0;
+  let rafId = null;
+
+  function updateSpokesGeometry(focusIdx, strength) {
+    const radiusSteps = 4.5;
+    let activeSpoke = null;
+
+    spokes.forEach((s) => {
+      let influence = 0;
+      let push = 0;
+      const isHovered = focusIdx !== null && Math.round(focusIdx) === s.idx && strength > 0.25;
+
+      if (focusIdx !== null && strength > 0.001) {
+        const diff = s.idx - focusIdx;
+        const dist = Math.abs(diff);
+        if (dist < radiusSteps) {
+          influence = Math.pow(Math.cos((dist / radiusSteps) * (Math.PI / 2)), 2) * strength;
+          if (Math.abs(diff) > 0.05) {
+            push = Math.sign(diff) * influence * 0.032;
+          }
+        }
+      }
+
+      const angle = Math.max(-Math.PI, Math.min(0, s.baseAngle + push));
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const rBump = influence * 14;
+
+      s.hitLine.setAttribute('x1', cx + s.rInner * cos);
+      s.hitLine.setAttribute('y1', cy + s.rInner * sin);
+      s.hitLine.setAttribute('x2', cx + (s.rLabel + rBump + 130) * cos);
+      s.hitLine.setAttribute('y2', cy + (s.rLabel + rBump + 130) * sin);
+
+      s.baseLine.setAttribute('x1', cx + s.rInner * cos);
+      s.baseLine.setAttribute('y1', cy + s.rInner * sin);
+      s.baseLine.setAttribute('x2', cx + s.rEnd * cos);
+      s.baseLine.setAttribute('y2', cy + s.rEnd * sin);
+
+      if (isHovered) {
+        s.baseLine.setAttribute('stroke', s.gov.color);
+        s.baseLine.setAttribute('stroke-width', '2.8');
+        s.baseLine.setAttribute('stroke-dasharray', 'none');
+        activeSpoke = s;
+      } else {
+        s.baseLine.setAttribute('stroke', '#bfb39a');
+        s.baseLine.setAttribute('stroke-width', (1.5 + influence * 0.6).toFixed(2));
+        s.baseLine.setAttribute(
+          'stroke-dasharray',
+          state.scale === 'normalized' ? '2 2.5' : 'none'
+        );
+      }
+
+      const gx1 = cx + s.rGold1 * cos;
+      const gy1 = cy + s.rGold1 * sin;
+      const gx2 = cx + s.rGold2 * cos;
+      const gy2 = cy + s.rGold2 * sin;
+
+      s.goldLine.setAttribute('x1', gx1);
+      s.goldLine.setAttribute('y1', gy1);
+      s.goldLine.setAttribute('x2', gx2);
+      s.goldLine.setAttribute('y2', gy2);
+      s.goldLine.setAttribute('stroke-width', (3.2 + influence * 2.4).toFixed(2));
+
+      s.dotStart.setAttribute('cx', gx1);
+      s.dotStart.setAttribute('cy', gy1);
+      s.dotStart.setAttribute('r', (3.2 + influence * 1.4).toFixed(2));
+
+      s.dotEnd.setAttribute('cx', gx2);
+      s.dotEnd.setAttribute('cy', gy2);
+      s.dotEnd.setAttribute('r', (3 + influence * 1.4).toFixed(2));
+
+      s.bubble.setAttribute('cx', cx + (s.rBubble + rBump * 0.55) * cos);
+      s.bubble.setAttribute('cy', cy + (s.rBubble + rBump * 0.55) * sin);
+      s.bubble.setAttribute('r', (s.baseBubbleR * (1 + influence * 0.35)).toFixed(2));
+      s.bubble.setAttribute('opacity', isHovered ? '0.55' : '0.28');
+
+      if (s.capText) {
+        s.capText.setAttribute('x', cx + (rOuter + 2 + rBump * 0.3) * cos);
+        s.capText.setAttribute('y', cy + (rOuter + 2 + rBump * 0.3) * sin);
+      }
+
+      s.iconText.setAttribute('x', cx + (s.rIcon + rBump * 0.8) * cos);
+      s.iconText.setAttribute('y', cy + (s.rIcon + rBump * 0.8) * sin);
+      s.iconText.setAttribute('font-size', (11 + influence * 3.5).toFixed(1));
+
+      const deg = (angle * 180) / Math.PI;
+      const flip = deg < -90;
+      const rotDeg = flip ? deg + 180 : deg;
+      const lx = cx + (s.rLabel + rBump) * cos;
+      const ly = cy + (s.rLabel + rBump) * sin;
+
+      s.label.setAttribute('x', lx);
+      s.label.setAttribute('y', ly);
+      s.label.setAttribute('transform', `rotate(${rotDeg}, ${lx}, ${ly})`);
+      s.label.setAttribute('text-anchor', flip ? 'end' : 'start');
+      s.label.setAttribute('font-size', (11.5 * (1 + influence * 0.42)).toFixed(1));
+      s.label.setAttribute('font-weight', isHovered ? '700' : '600');
+    });
+
+    if (activeSpoke && activeSpoke.g.isConnected) {
+      svg.appendChild(activeSpoke.g);
+    }
+  }
+
+  function stepDock() {
+    if (spokes.length > 0 && !spokes[0].g.isConnected) {
+      rafId = null;
+      activeDockRaf = null;
+      return;
+    }
+    const targetStrength = targetIdx === null ? 0 : 1;
+    dockStrength += (targetStrength - dockStrength) * 0.24;
+
+    if (targetIdx !== null) {
+      currentIdx = currentIdx === null ? targetIdx : currentIdx + (targetIdx - currentIdx) * 0.26;
+    }
+
+    updateSpokesGeometry(currentIdx, dockStrength);
+
+    const settledStrength = Math.abs(targetStrength - dockStrength) < 0.01;
+    const settledPos = targetIdx === null || Math.abs(targetIdx - currentIdx) < 0.02;
+
+    if (!settledStrength || !settledPos) {
+      rafId = requestAnimationFrame(stepDock);
+      activeDockRaf = rafId;
+    } else {
+      dockStrength = targetStrength;
+      if (targetIdx === null) currentIdx = null;
+      else currentIdx = targetIdx;
+      updateSpokesGeometry(currentIdx, dockStrength);
+      rafId = null;
+      activeDockRaf = null;
+    }
+  }
+
+  function triggerDock(newIdx) {
+    targetIdx = newIdx;
+    if (!rafId) {
+      rafId = requestAnimationFrame(stepDock);
+      activeDockRaf = rafId;
+    }
+  }
+
+  spokes.forEach((s) => {
+    s.g.addEventListener('mouseenter', () => triggerDock(s.idx));
+  });
+  svg.onmouseleave = () => {
+    hideTooltip();
+    triggerDock(null);
+  };
+
+  // Posición inicial en reposo
+  updateSpokesGeometry(null, 0);
 }
 
 function renderHorizontal(items, avgs) {
@@ -923,6 +1067,11 @@ function renderTimeline(items) {
 }
 
 function render() {
+  if (activeDockRaf) {
+    cancelAnimationFrame(activeDockRaf);
+    activeDockRaf = null;
+  }
+  hideTooltip();
   const { base, matching } = getFilteredAndSorted();
   const avgs = updateKPIs(matching);
 
@@ -930,6 +1079,7 @@ function render() {
   updateGuide();
   renderLegends();
 
+  svg.onmouseleave = null;
   svg.innerHTML = '';
   if (state.view === 'radial') {
     renderRadial(base, avgs);
