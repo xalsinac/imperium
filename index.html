@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Imperium — Grandes Imperios de la Historia</title>
+  <link rel="icon" type="image/png" href="casco-romano.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="top-header">
+      <div class="title-block">
+        <img src="casco-romano.png" alt="Imperium" class="brand-mark" />
+        <div class="title-copy">
+          <p class="eyebrow">Atlas visual de historia comparada</p>
+          <h1>Imperium</h1>
+          <p class="subtitle" id="view-subtitle">
+            La vida de los imperios, edad de oro y su declive.
+          </p>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="search-box header-search">
+          <input
+            type="search"
+            id="search-input"
+            class="search-input"
+            placeholder="Buscar imperio, región o capital…"
+            autocomplete="off"
+            aria-label="Buscar imperio"
+          />
+          <button type="button" id="search-clear" class="search-clear" title="Limpiar búsqueda" aria-label="Limpiar búsqueda" hidden>×</button>
+          <kbd class="search-kbd" id="search-kbd">⌘K</kbd>
+        </div>
+
+        <section class="kpi-grid" aria-label="Indicadores medios de la selección actual">
+          <div class="kpi-card">
+            <span class="kpi-label">Imperios visibles</span>
+            <strong class="kpi-value" id="kpi-count">—</strong>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Duración media</span>
+            <strong class="kpi-value" id="kpi-duration">—</strong>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Inicio medio de apogeo</span>
+            <strong class="kpi-value kpi-accent" id="kpi-peak">—</strong>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Inicio medio de declive</span>
+            <strong class="kpi-value" id="kpi-decline">—</strong>
+          </div>
+        </section>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="Controles de visualización">
+      <div class="control-group">
+        <span class="control-label">Vista</span>
+        <div class="segmented-control" role="tablist" aria-label="Modo de visualización">
+          <button type="button" class="seg-btn active" data-view="radial" role="tab" aria-selected="true">
+            Abanico radial
+          </button>
+          <button type="button" class="seg-btn" data-view="horizontal" role="tab" aria-selected="false">
+            Barras horizontales
+          </button>
+          <button type="button" class="seg-btn" data-view="timeline" role="tab" aria-selected="false">
+            Coexistencia (años)
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group" id="scale-control-group">
+        <span class="control-label">Escala</span>
+        <div class="segmented-control" role="group" aria-label="Escala de longitud">
+          <button type="button" class="seg-btn active" data-scale="normalized">
+            Normalizada (0–100%)
+          </button>
+          <button type="button" class="seg-btn" data-scale="years">
+            Duración real (años)
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label class="control-label" for="sort-select">Ordenar por</label>
+        <div class="sort-row">
+          <select id="sort-select" class="select-input">
+            <option value="startYear">Antigüedad (inicio)</option>
+            <option value="duration">Duración total</option>
+            <option value="peakAreaKm2">Extensión máxima</option>
+            <option value="goldenDuration">Edad de oro</option>
+          </select>
+          <button type="button" id="sort-dir-btn" class="icon-btn" title="Cambiar sentido de ordenación" aria-label="Cambiar sentido de ordenación">
+            ↑
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group control-actions">
+        <label class="checkbox-pill">
+          <input type="checkbox" id="fiction-toggle" />
+          <span>Incluir ficción</span>
+        </label>
+        <button type="button" id="reset-btn" class="reset-btn">Restablecer</button>
+      </div>
+    </section>
+
+    <section class="legends-bar" aria-label="Filtros por categoría">
+      <div class="legend-block">
+        <span class="legend-title">Tipo de gobierno <small>(clic para filtrar)</small></span>
+        <div class="legend-pills" id="gov-legend"></div>
+      </div>
+      <div class="legend-block">
+        <span class="legend-title">Causa principal de colapso <small>(clic para filtrar)</small></span>
+        <div class="legend-pills" id="collapse-legend"></div>
+      </div>
+    </section>
+
+    <main class="workspace-grid">
+      <section class="chart-panel">
+        <div class="chart-guide" id="chart-guide"></div>
+        <div class="chart-stage" id="chart-stage">
+          <svg id="chart-svg" role="img" aria-label="Visualización interactiva de imperios"></svg>
+        </div>
+      </section>
+
+      <aside class="detail-panel" id="detail-panel" aria-live="polite">
+        <div class="detail-empty">
+          <p class="detail-empty-title">Explora un imperio</p>
+          <p class="detail-empty-text">
+            Pasa el cursor o haz clic sobre cualquier imperio en el gráfico para fijar su ficha histórica completa sin tapar la visualización.
+          </p>
+          <div class="mini-key">
+            <div class="mini-key-row">
+              <span class="key-dot key-dot-open"></span>
+              <span>Inicio de la edad de oro (apogeo)</span>
+            </div>
+            <div class="mini-key-row">
+              <span class="key-line-gold"></span>
+              <span>Duración de la edad de oro</span>
+            </div>
+            <div class="mini-key-row">
+              <span class="key-dot key-dot-solid"></span>
+              <span>Inicio del declive</span>
+            </div>
+            <div class="mini-key-row">
+              <span class="key-circle-area"></span>
+              <span>Círculo proporcional a la extensión (M km²)</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="floating-tooltip" id="floating-tooltip" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
